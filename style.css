@@ -82,10 +82,11 @@ dialog::backdrop { background: rgba(20,30,45,.45); }
 .gw-word:hover { background: #eaf2ff; }
 .gw-word.active { background: #d9e8ff; font-weight: 600; }
 .gw-word b { color: #1d4fa8; }
-.gw-phrase { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-bottom: 1px solid #eef1f5; font-size: 13px; }
-.gw-phrase:last-child { border-bottom: 0; }
-.gw-phrase .txt { flex: 1; }
-.gw-phrase .score { color: #1d4fa8; font-weight: 600; white-space: nowrap; }
+.dlg .gw-phrase { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 5px 6px; border-bottom: 1px solid #eef1f5; font-size: 13px; }
+.dlg .gw-phrase:last-child { border-bottom: 0; }
+.dlg .gw-phrase input { flex: 0 0 auto; }
+.dlg .gw-phrase .txt { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dlg .gw-phrase .score { flex: 0 0 auto; color: #1d4fa8; font-weight: 600; white-space: nowrap; }
 .gw-empty { padding: 14px; color: #7b8a9a; font-size: 13px; }
 .dlg h2 { margin: 0; font-size: 18px; }
 .dlg label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #44515f; }

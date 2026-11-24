@@ -697,8 +697,9 @@ function renderGwPhrases() {
   $('gwPhrases').innerHTML = list.length
     ? list.map((k) => {
       const detail = gwWords(k).map((stem) => `${gwLabels.get(stem)}: ${gwStats.get(stem)}`).join(', ');
+      const title = `${k.p} — ${detail}`;
       return `<label class="gw-phrase"><input type="checkbox" data-i="${gwItems.indexOf(k)}" ${gwSelected.has(k) ? 'checked' : ''}>
-        <span class="txt" title="${esc(detail)}">${esc(k.p)}</span><span class="score" title="Сумма вхождений слов">${gwScores.get(k)}</span></label>`;
+        <span class="txt" title="${esc(title)}">${esc(k.p)}</span><span class="score" title="Сумма вхождений слов">${gwScores.get(k)}</span></label>`;
     }).join('')
     : '<div class="gw-empty">Нет фраз по этому фильтру</div>';
   updateGwCount();
