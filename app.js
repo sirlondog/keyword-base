@@ -747,6 +747,7 @@ function setGwMode(mode) {
   $('gwRightTitle').textContent = mode === 'words' ? 'Слова для удаления' : 'Фразы кластера';
   $('gwTarget').classList.toggle('hidden', mode !== 'phrases');
   $('gwMove').classList.toggle('hidden', mode !== 'phrases');
+  $('gwDelete').classList.toggle('hidden', mode !== 'phrases');
   $('gwDeleteWords').classList.toggle('hidden', mode !== 'words');
   renderGwAll();
 }
@@ -848,6 +849,28 @@ function moveGwSelected() {
   renderGwAll();
   changed(`Группировка «${$('gwTitle').textContent}»: ${phrasesWord(items.length)} → ${name}`);
   toast(`${phrasesWord(items.length)} → ${name}`);
+}
+
+async function deleteGwPhrases() {
+  if (editLocked()) return;
+  const items = gwVisible().filter((k) => gwSelected.has(k));
+  if (!items.length) { toast('Отметьте фразы галочками', true); return; }
+  if (!await askConfirm(`Удалить ${phrasesWord(items.length)} из базы?`, 'Удаление фраз')) return;
+
+  const del = new Set(items);
+  db.keywords = db.keywords.filter((k) => !del.has(k));
+  for (const l of db.lists) l.items = l.items.filter((k) => !del.has(k));
+  for (const k of items) selected.delete(k);
+
+  gwItems = gwItems.filter((k) => !del.has(k));
+  gwSelected.clear();
+  gwBuild();
+  fillGwTarget();
+  if (!gwItems.length) $('dlgWordGroups').close('');
+  else renderGwAll();
+  rebuildIndex();
+  changed(`Группировка «${$('gwTitle').textContent}»: удалено ${phrasesWord(items.length)}`);
+  toast(`Удалено ${phrasesWord(items.length)}`);
 }
 
 async function editGroup(type, item) {
@@ -1347,6 +1370,7 @@ function bind() {
     }
   });
   $('gwMove').addEventListener('click', moveGwSelected);
+  $('gwDelete').addEventListener('click', deleteGwPhrases);
   $('gwDeleteWords').addEventListener('click', deleteGwWords);
 
   $('btnWs').addEventListener('click', () => openWs(selected.size ? selectedArray() : rows));
