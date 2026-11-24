@@ -4,10 +4,12 @@ const MAX_WORDS = 7;
 const PAGE_SIZE = 300;
 const LS_CFG = 'kb.cfg';
 const LS_DB = 'kb.db';
+const LS_COL = 'kb.col';
 const DEFAULT_CFG = { token: '', owner: 'sirlondog', repo: 'keyword-clusters', branch: 'main', path: 'data/keywords.json' };
 
 let cfg = { ...DEFAULT_CFG, ...readLS(LS_CFG) };
 let db = emptyDb();
+let collapsed = new Set(Array.isArray(readLS(LS_COL)) ? readLS(LS_COL) : (readLS(LS_COL).ids || []));
 let sha = null;          // sha файла на GitHub, от которого отталкивается локальная версия
 let dirty = false;
 let editVersion = 0;
@@ -86,6 +88,59 @@ function rebuildIndex() {
 function clusterName(id) {
   const c = id && db.clusters.find((x) => x.id === id);
   return c ? c.name : '';
+}
+
+function clusterById(id) {
+  return id ? db.clusters.find((x) => x.id === id) : null;
+}
+
+function clusterChildren(parentId) {
+  return db.clusters.filter((c) => (c.p || '') === (parentId || ''));
+}
+
+function clusterDescendantIds(id) {
+  const out = [];
+  const walk = (pid) => {
+    for (const c of clusterChildren(pid)) { out.push(c.id); walk(c.id); }
+  };
+  walk(id);
+  return out;
+}
+
+function clusterHasCycle(id, parentId) {
+  let cur = parentId || '';
+  while (cur) {
+    if (cur === id) return true;
+    cur = clusterById(cur)?.p || '';
+  }
+  return false;
+}
+
+function clusterPath(id) {
+  const parts = [];
+  let cur = clusterById(id);
+  let guard = 0;
+  while (cur && guard++ < 50) {
+    parts.unshift(cur.name);
+    cur = cur.p ? clusterById(cur.p) : null;
+  }
+  return parts.join(' / ');
+}
+
+function clusterDepth(id) {
+  let d = 0, cur = clusterById(id), guard = 0;
+  while (cur?.p && guard++ < 50) { d++; cur = clusterById(cur.p); }
+  return d;
+}
+
+function sortedClusters() {
+  return db.clusters.slice().sort((a, b) => clusterPath(a.id).localeCompare(clusterPath(b.id), 'ru'));
+}
+
+function clusterOptions(excludeIds = []) {
+  const skip = new Set(excludeIds);
+  return sortedClusters().filter((c) => !skip.has(c.id))
+    .map((c) => `<option value="${esc(c.id)}">${esc(clusterPath(c.id))}</option>`).join('');
 }
 
 function toast(msg, isErr) {
@@ -202,9 +257,16 @@ async function fetchRemote() {
 }
 
 function normalizeDb(d) {
+  const rawClusters = Array.isArray(d.clusters) ? d.clusters : [];
+  const ids = new Set(rawClusters.map((c) => c.id).filter(Boolean));
+  const clusters = rawClusters.map((c) => {
+    const o = { id: c.id, name: c.name };
+    if (c.p && ids.has(c.p) && c.p !== c.id) o.p = c.p;
+    return o;
+  });
   return {
     version: 1,
-    clusters: Array.isArray(d.clusters) ? d.clusters : [],
+    clusters,
     lists: (Array.isArray(d.lists) ? d.lists : []).map((l) => ({ ...l, items: Array.isArray(l.items) ? l.items : [] })),
     keywords: Array.isArray(d.keywords) ? d.keywords : [],
   };
@@ -335,6 +397,8 @@ function changed(msg) {
 
 function afterDataReplaced() {
   rebuildIndex();
+  const alive = new Set(db.clusters.map((c) => c.id));
+  collapsed = new Set([...collapsed].filter((id) => alive.has(id)));
   if (view.type === 'cluster' && !db.clusters.some((c) => c.id === view.id)) view = { type: 'all' };
   if (view.type === 'list' && !db.lists.some((l) => l.id === view.id)) view = { type: 'all' };
   selected.clear();
@@ -373,7 +437,10 @@ function currentList() {
 
 function sourceRows() {
   if (view.type === 'list') return currentList()?.items || [];
-  if (view.type === 'cluster') return db.keywords.filter((k) => k.c === view.id);
+  if (view.type === 'cluster') {
+    const ids = new Set([view.id, ...clusterDescendantIds(view.id)]);
+    return db.keywords.filter((k) => ids.has(k.c));
+  }
   if (view.type === 'nocluster') {
     const ids = new Set(db.clusters.map((c) => c.id));
     return db.keywords.filter((k) => !k.c || !ids.has(k.c));
@@ -414,7 +481,7 @@ function computeRows() {
 function viewTitle() {
   if (view.type === 'all') return 'Все ключи';
   if (view.type === 'nocluster') return 'Без кластера';
-  if (view.type === 'cluster') return clusterName(view.id);
+  if (view.type === 'cluster') return clusterPath(view.id) || clusterName(view.id);
   return currentList()?.name || '';
 }
 
@@ -427,11 +494,15 @@ function render() {
   renderJob();
 }
 
-function navItem(attrs, name, items, active) {
+function navItem(attrs, name, items, active, opts = {}) {
   const total = items.length;
   const loaded = items.reduce((n, k) => n + (k.s ? 1 : 0), 0);
-  return `<div class="nav-item${active ? ' active' : ''}" ${attrs}>
-    <span class="name" title="${esc(name)}">${esc(name)}</span>
+  const pad = 16 + (opts.depth || 0) * 14;
+  const caret = opts.hasChildren
+    ? `<span class="caret" data-toggle-cluster="${esc(opts.id)}" title="${collapsed.has(opts.id) ? 'Раскрыть' : 'Свернуть'}">${collapsed.has(opts.id) ? '▸' : '▾'}</span>`
+    : (opts.depth ? '<span class="caret empty"></span>' : '');
+  return `<div class="nav-item${active ? ' active' : ''}" style="padding-left:${pad}px" ${attrs}>
+    ${caret}<span class="name" title="${esc(opts.title || name)}">${esc(name)}</span>
     <span class="cnt" title="загружено / всего"><b>${loaded}</b> / ${total}</span>
   </div>`;
 }
@@ -445,9 +516,31 @@ function renderNav() {
     navItem('data-view="all"', 'Все ключи', db.keywords, view.type === 'all') +
     navItem('data-view="nocluster"', 'Без кластера', none, view.type === 'nocluster');
 
+  const reachable = new Set();
+  const markReachable = (c) => {
+    if (reachable.has(c.id)) return;
+    reachable.add(c.id);
+    clusterChildren(c.id).forEach(markReachable);
+  };
+  clusterChildren('').forEach(markReachable);
+
+  const rendered = new Set();
+  const renderCluster = (c, depth) => {
+    if (rendered.has(c.id)) return '';
+    rendered.add(c.id);
+    const kids = clusterChildren(c.id);
+    const own = new Set(byCluster.get(c.id) || []);
+    for (const kid of clusterDescendantIds(c.id)) for (const k of byCluster.get(kid) || []) own.add(k);
+    let html = navItem(`data-view="cluster" data-id="${esc(c.id)}"`, c.name,
+      [...own],
+      view.type === 'cluster' && view.id === c.id,
+      { depth, id: c.id, hasChildren: kids.length > 0, title: clusterPath(c.id) });
+    if (kids.length && !collapsed.has(c.id)) html += kids.map((k) => renderCluster(k, depth + 1)).join('');
+    return html;
+  };
   $('navClusters').innerHTML = db.clusters.length
-    ? db.clusters.map((c) => navItem(`data-view="cluster" data-id="${esc(c.id)}"`, c.name, byCluster.get(c.id),
-      view.type === 'cluster' && view.id === c.id)).join('')
+    ? clusterChildren('').map((c) => renderCluster(c, 0)).join('') +
+      db.clusters.filter((c) => !reachable.has(c.id)).map((c) => renderCluster(c, 0)).join('')
     : '<div class="nav-item" style="color:#9aa7b4;cursor:default">нет кластеров</div>';
 
   $('navLists').innerHTML = db.lists.length
@@ -465,7 +558,7 @@ function renderView() {
   $('viewPurpose').textContent = isList ? (list?.purpose || '') : '';
 
   const acts = [];
-  if (view.type === 'cluster') acts.push('<button data-act="group">▤ Группировка слов</button>', '<button data-act="rename">✎ Переименовать</button>', '<button data-act="remove" class="danger">Удалить кластер</button>');
+  if (view.type === 'cluster') acts.push('<button data-act="group">▤ Группировка слов</button>', '<button data-act="child">＋ Вложенный кластер</button>', '<button data-act="rename">✎ Переименовать</button>', '<button data-act="remove" class="danger">Удалить кластер</button>');
   if (isList) acts.push('<button data-act="rename">✎ Изменить</button>', '<button data-act="remove" class="danger">Удалить список</button>');
   $('viewActions').innerHTML = acts.join('');
 
@@ -541,8 +634,7 @@ function renderBulk() {
   if (view.type === 'list') { move.classList.add('hidden'); return; }
   move.classList.remove('hidden');
   move.innerHTML = '<option value="">Переместить в кластер…</option><option value="-">— без кластера —</option>' +
-    db.clusters.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('') +
-    '<option value="+">＋ новый кластер…</option>';
+    clusterOptions() + '<option value="+">＋ новый кластер…</option>';
 }
 
 // ---------- действия ----------
@@ -831,7 +923,7 @@ function renderGwAll() {
 function fillGwTarget() {
   const prev = $('gwTarget').value;
   $('gwTarget').innerHTML = '<option value="">Куда переместить…</option><option value="-">— без кластера —</option>' +
-    db.clusters.filter((c) => c.id !== view.id).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+    clusterOptions([view.id]);
   $('gwTarget').value = prev;
 }
 
@@ -897,14 +989,25 @@ async function editGroup(type, item) {
   if (editLocked()) return null;
   const dlg = $('dlgGroup');
   $('groupTitle').textContent = item
-    ? (type === 'cluster' ? 'Переименовать кластер' : 'Изменить список')
+    ? (type === 'cluster' ? 'Изменить кластер' : 'Изменить список')
     : (type === 'cluster' ? 'Новый кластер' : 'Новый список ключей');
   $('groupName').value = item?.name || '';
   $('groupPurpose').value = item?.purpose || '';
   $('groupPurposeWrap').classList.toggle('hidden', type !== 'list');
+
+  const blocked = item ? new Set([item.id, ...clusterDescendantIds(item.id)]) : new Set();
+  $('groupParent').innerHTML = '<option value="">— корневой кластер —</option>' + clusterOptions([...blocked]);
+  $('groupParent').value = item?.p || (type === 'cluster' && view.type === 'cluster' ? view.id : '');
+  $('groupParentWrap').classList.toggle('hidden', type !== 'cluster');
+
   if ((await openDialog(dlg)) !== 'ok') return null;
   const name = $('groupName').value.trim();
   if (!name) return null;
+  const parent = $('groupParent').value || '';
+  if (type === 'cluster' && parent && (blocked.has(parent) || clusterHasCycle(item?.id || '__new__', parent))) {
+    toast('Нельзя сделать кластер родителем самого себя или своего потомка', true);
+    return null;
+  }
   const coll = type === 'cluster' ? db.clusters : db.lists;
   if (coll.some((x) => x !== item && x.name.toLowerCase() === name.toLowerCase())) {
     toast(`${type === 'cluster' ? 'Кластер' : 'Список'} «${name}» уже есть`, true);
@@ -912,14 +1015,27 @@ async function editGroup(type, item) {
   }
   if (item) {
     item.name = name;
+    if (type === 'cluster') {
+      if (parent) item.p = parent;
+      else delete item.p;
+      if (collapsed.has(item.id) && !clusterChildren(item.id).length) collapsed.delete(item.id);
+    }
     if (type === 'list') item.purpose = $('groupPurpose').value.trim();
-    changed(`Переименовано: «${name}»`);
+    if (type === 'cluster' && parent) {
+      collapsed.delete(parent);
+      localStorage.setItem(LS_COL, JSON.stringify([...collapsed]));
+    }
+    changed(type === 'cluster' ? `Кластер «${name}»: ${parent ? 'в ' + clusterPath(parent) : 'корневой'}` : `Изменён список «${name}»`);
     return item;
   }
   const created = type === 'cluster'
-    ? { id: uid('c_'), name }
+    ? { id: uid('c_'), name, ...(parent ? { p: parent } : {}) }
     : { id: uid('l_'), name, purpose: $('groupPurpose').value.trim(), items: [] };
   coll.push(created);
+  if (type === 'cluster' && parent) {
+    collapsed.delete(parent);
+    localStorage.setItem(LS_COL, JSON.stringify([...collapsed]));
+  }
   changed(`${type === 'cluster' ? 'Новый кластер' : 'Новый список'} «${name}»`);
   return created;
 }
@@ -995,12 +1111,22 @@ async function moveSelected(value) {
 async function removeCurrentGroup() {
   if (editLocked()) return;
   if (view.type === 'cluster') {
-    const c = db.clusters.find((x) => x.id === view.id);
+    const c = clusterById(view.id);
     const n = db.keywords.filter((k) => k.c === c.id).length;
-    if (!await askConfirm(`Удалить кластер «${c.name}»?\n${phrasesWord(n)} останутся в базе без кластера.`,
+    const kids = clusterChildren(c.id);
+    const extra = kids.length
+      ? `\nВложенные: ${kids.map((x) => `«${x.name}»`).join(', ')} — поднимутся на уровень выше.`
+      : '';
+    if (!await askConfirm(`Удалить кластер «${c.name}»?\nБез кластера: ${phrasesWord(n)}.${extra}`,
       'Удаление кластера')) return;
     db.keywords.forEach((k) => { if (k.c === c.id) delete k.c; });
+    for (const kid of kids) {
+      if (c.p) kid.p = c.p;
+      else delete kid.p;
+      collapsed.delete(kid.id);
+    }
     db.clusters = db.clusters.filter((x) => x !== c);
+    collapsed.delete(c.id);
     view = { type: 'nocluster' };
     selected.clear();
     changed(`Удалён кластер «${c.name}»`);
@@ -1019,7 +1145,7 @@ function fillAddTargets(preferred) {
   const sel = $('addTarget');
   sel.innerHTML =
     '<optgroup label="База"><option value="c:">— без кластера —</option>' +
-    db.clusters.map((c) => `<option value="c:${esc(c.id)}">Кластер: ${esc(c.name)}</option>`).join('') +
+    sortedClusters().map((c) => `<option value="c:${esc(c.id)}">Кластер: ${esc(clusterPath(c.id))}</option>`).join('') +
     '<option value="new-cluster">＋ новый кластер…</option></optgroup>' +
     '<optgroup label="Отдельные списки">' +
     db.lists.map((l) => `<option value="l:${esc(l.id)}">Список: ${esc(l.name)}</option>`).join('') +
@@ -1273,6 +1399,15 @@ async function cancelJob() {
 
 function bind() {
   document.querySelector('.side').addEventListener('click', (e) => {
+    const toggle = e.target.closest('[data-toggle-cluster]');
+    if (toggle) {
+      const id = toggle.dataset.toggleCluster;
+      if (collapsed.has(id)) collapsed.delete(id);
+      else collapsed.add(id);
+      localStorage.setItem(LS_COL, JSON.stringify([...collapsed]));
+      renderNav();
+      return;
+    }
     const it = e.target.closest('.nav-item[data-view]');
     if (!it) return;
     view = { type: it.dataset.view, id: it.dataset.id };
@@ -1292,9 +1427,13 @@ function bind() {
     if (l) { view = { type: 'list', id: l.id }; selected.clear(); render(); }
   });
 
-  $('viewActions').addEventListener('click', (e) => {
+  $('viewActions').addEventListener('click', async (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'group') openWordGroups();
+    else if (act === 'child') {
+      const c = await editGroup('cluster');
+      if (c) { view = { type: 'cluster', id: c.id }; selected.clear(); page = 0; render(); }
+    }
     else if (act === 'rename') {
       const item = view.type === 'cluster' ? db.clusters.find((c) => c.id === view.id) : currentList();
       editGroup(view.type, item);
