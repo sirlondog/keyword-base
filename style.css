@@ -109,6 +109,8 @@ dialog#dlgConfirm.stacked::backdrop { background: rgba(20,30,45,.12); }
 .report ul { margin: 4px 0; padding-left: 18px; }
 .report li span { color: #7b8a9a; }
 
+.ws-types-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ws-types-head button { padding: 3px 9px; font-size: 12px; }
 .ws-types { display: flex; flex-wrap: wrap; gap: 18px; }
 .ws-types code, .hint code { padding: 1px 5px; border-radius: 4px; background: #eef1f5; font-size: 12px; }
 .job-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 9px 12px; margin-bottom: 8px; border-radius: 8px; background: #fff7e0; border: 1px solid #f0d58a; }

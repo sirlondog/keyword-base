@@ -491,7 +491,8 @@ function renderView() {
   if (showCluster) cols.push(['c', 'Кластер']);
   cols.push(['s', 'Статус'], ['d', 'Добавлено']);
 
-  const allSel = rows.length > 0 && rows.every((k) => selected.has(k));
+  const allSel = rows.length > 0 && rows.every((k) => selected.has(k)) && selected.size === rows.length;
+  $('btnSelectAll').textContent = allSel ? '☐ Снять выделение' : '☑ Выделить все';
   $('thead').innerHTML = `<th class="cb nosort"><input type="checkbox" id="selAll" ${allSel ? 'checked' : ''} title="Выделить всё по фильтру"></th>` +
     cols.map(([k, t, cls, title]) => `<th data-sort="${k}" class="${cls || ''}"${title ? ` title="${esc(title)}"` : ''}>${esc(t)}${sort.key === k ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('');
 
@@ -1175,6 +1176,11 @@ function updateWsEstimate() {
     : '<span class="warn">У всех выбранных фраз частотность уже собрана</span>';
 }
 
+function syncWsAllTypes() {
+  const all = ['wsB', 'wsQ', 'wsE'].every((id) => $(id).checked);
+  $('wsAllTypes').textContent = all ? 'Снять все' : 'Выбрать все';
+}
+
 async function openWs(items) {
   if (!cfg.token) return openSettings();
   if (jobActive(job)) { toast('Сбор частотности уже идёт', true); return; }
@@ -1188,6 +1194,7 @@ async function openWs(items) {
   $('wsE').checked = saved.types ? saved.types.includes('e') : false;
   $('wsRegion').value = saved.region ?? '10174';
   $('wsSkip').checked = saved.skip ?? true;
+  syncWsAllTypes();
   syncRegionSelect();
   $('wsScope').textContent = selected.size
     ? `Выделенные фразы: ${phrasesWord(items.length)}.`
@@ -1377,7 +1384,17 @@ function bind() {
   $('jobBar').addEventListener('click', (e) => {
     if (e.target.closest('[data-job=cancel]')) cancelJob();
   });
-  ['wsB', 'wsQ', 'wsE', 'wsSkip'].forEach((id) => $(id).addEventListener('change', updateWsEstimate));
+  ['wsB', 'wsQ', 'wsE', 'wsSkip'].forEach((id) => $(id).addEventListener('change', () => {
+    syncWsAllTypes();
+    updateWsEstimate();
+  }));
+  $('wsAllTypes').addEventListener('click', () => {
+    const ids = ['wsB', 'wsQ', 'wsE'];
+    const all = ids.every((id) => $(id).checked);
+    ids.forEach((id) => { $(id).checked = !all; });
+    syncWsAllTypes();
+    updateWsEstimate();
+  });
   $('wsRegionSel').addEventListener('change', (e) => {
     if (e.target.value !== 'custom') $('wsRegion').value = e.target.value;
     updateWsEstimate();
@@ -1386,6 +1403,12 @@ function bind() {
 
   $('btnCopyAll').addEventListener('click', () => copyPhrases(rows));
   $('btnCsvAll').addEventListener('click', () => downloadCsv(rows));
+  $('btnSelectAll').addEventListener('click', () => {
+    const all = rows.length > 0 && rows.every((k) => selected.has(k)) && selected.size === rows.length;
+    if (all) selected.clear();
+    else rows.forEach((k) => selected.add(k));
+    renderView();
+  });
 
   $('btnAdd').addEventListener('click', openAdd);
   $('addTarget').addEventListener('change', async (e) => {

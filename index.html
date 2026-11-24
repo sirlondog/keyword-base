@@ -49,6 +49,7 @@
       <button id="btnWs" title="Собрать частотность Яндекс Wordstat через XMLRiver">📊 Частотность</button>
       <button id="btnCopyAll" title="Скопировать все фразы, видимые с учётом фильтров">Копировать все</button>
       <button id="btnCsvAll" title="Выгрузить в CSV все фразы, видимые с учётом фильтров">CSV</button>
+      <button id="btnSelectAll" title="Выделить все фразы по текущему фильтру">☑ Выделить все</button>
       <button class="primary" id="btnAdd">＋ Добавить ключи</button>
     </div>
 
@@ -133,6 +134,10 @@
   <form method="dialog" class="dlg">
     <h2>Собрать частотность Wordstat</h2>
     <p class="hint" id="wsScope"></p>
+    <div class="ws-types-head">
+      <b>Виды частотности</b>
+      <button type="button" id="wsAllTypes">Выбрать все</button>
+    </div>
     <div class="ws-types">
       <label class="check"><input type="checkbox" id="wsB" checked> Базовая <code>сборка пк</code></label>
       <label class="check"><input type="checkbox" id="wsQ" checked> Фразовая <code>"сборка пк"</code></label>
