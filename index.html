@@ -56,6 +56,7 @@
       <span id="bulkCount"></span>
       <button data-bulk="loaded" class="ok">✔ Загружено</button>
       <button data-bulk="unloaded">✖ Не загружено</button>
+      <button data-bulk="bang" title="Добавить ! к каждому слову выбранных фраз (уже имеющие ! не трогаем)">❗ Добавить !</button>
       <select id="bulkMove"></select>
       <button data-bulk="ws">📊 Частотность</button>
       <button data-bulk="copy">Копировать</button>
@@ -92,6 +93,33 @@
       <button id="btnAddDo" class="primary" type="button">Добавить</button>
     </div>
   </form>
+</dialog>
+
+<!-- Группировка слов кластера -->
+<dialog id="dlgWordGroups">
+  <div class="dlg wide">
+    <h2>Группировка слов — <span id="gwTitle"></span></h2>
+    <p class="hint">Отдельные слова считаются по числу фраз кластера, в которых они встречаются.
+      Цифра напротив фразы — сумма вхождений всех её слов (подробности в подсказке). Нажмите на слово, чтобы оставить только фразы с ним.</p>
+    <div class="row gw-tools">
+      <input id="gwSearch" placeholder="Поиск по словам или фразам…">
+      <select id="gwTarget"></select>
+      <button type="button" id="gwSelectAll">Выделить всё</button>
+      <button type="button" id="gwMove" class="primary">Переместить</button>
+      <button type="button" data-close>Закрыть</button>
+    </div>
+    <div id="gwCount" class="hint"></div>
+    <div class="gw-cols">
+      <div>
+        <h3>Отдельные слова</h3>
+        <div id="gwWords" class="gw-list"></div>
+      </div>
+      <div>
+        <h3>Фразы кластера</h3>
+        <div id="gwPhrases" class="gw-list"></div>
+      </div>
+    </div>
+  </div>
 </dialog>
 
 <!-- Сбор частотности -->

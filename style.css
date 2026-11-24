@@ -71,6 +71,22 @@ dialog { border: 0; border-radius: 12px; padding: 0; box-shadow: 0 20px 60px rgb
 dialog::backdrop { background: rgba(20,30,45,.45); }
 .dlg { display: flex; flex-direction: column; gap: 12px; width: 640px; max-width: 92vw; padding: 20px 22px; }
 .dlg.small { width: 440px; }
+.dlg.wide { width: 940px; }
+.gw-tools { align-items: flex-end; flex-wrap: wrap; }
+.gw-tools input { flex: 2; min-width: 220px; }
+.gw-tools select { flex: 1; min-width: 190px; }
+.gw-cols { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 12px; }
+.gw-cols h3 { margin: 0 0 6px; font-size: 14px; }
+.gw-list { max-height: 430px; overflow: auto; padding: 7px; border: 1px solid #e2e7ee; border-radius: 8px; background: #f8fafc; }
+.gw-word { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.gw-word:hover { background: #eaf2ff; }
+.gw-word.active { background: #d9e8ff; font-weight: 600; }
+.gw-word b { color: #1d4fa8; }
+.gw-phrase { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-bottom: 1px solid #eef1f5; font-size: 13px; }
+.gw-phrase:last-child { border-bottom: 0; }
+.gw-phrase .txt { flex: 1; }
+.gw-phrase .score { color: #1d4fa8; font-weight: 600; white-space: nowrap; }
+.gw-empty { padding: 14px; color: #7b8a9a; font-size: 13px; }
 .dlg h2 { margin: 0; font-size: 18px; }
 .dlg label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #44515f; }
 .dlg label.check { flex-direction: row; align-items: center; gap: 8px; }

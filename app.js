@@ -454,7 +454,7 @@ function renderView() {
   $('viewPurpose').textContent = isList ? (list?.purpose || '') : '';
 
   const acts = [];
-  if (view.type === 'cluster') acts.push('<button data-act="rename">✎ Переименовать</button>', '<button data-act="remove" class="danger">Удалить кластер</button>');
+  if (view.type === 'cluster') acts.push('<button data-act="group">▤ Группировка слов</button>', '<button data-act="rename">✎ Переименовать</button>', '<button data-act="remove" class="danger">Удалить кластер</button>');
   if (isList) acts.push('<button data-act="rename">✎ Изменить</button>', '<button data-act="remove" class="danger">Удалить список</button>');
   $('viewActions').innerHTML = acts.join('');
 
@@ -588,6 +588,169 @@ function reportHtml(rep, target) {
     block(`Больше ${MAX_WORDS} слов — отброшены`, rep.long, (p) => `<li>${esc(p)} <span>(${norm(p).words} сл.)</span></li>`);
 }
 
+function bangPhrase(p) {
+  return String(p).split(/(\s+)/).map((tok) => {
+    if (!tok.trim()) return tok;
+    if (tok.startsWith('-') || tok.includes('!')) return tok;
+    const m = tok.match(/^([+(\["]*)(.+)$/u);
+    return m && m[2].trim() ? m[1] + '!' + m[2] : tok;
+  }).join('');
+}
+
+function addBangSelected(items) {
+  if (editLocked()) return;
+  let changedCount = 0;
+  for (const k of items) {
+    const next = bangPhrase(k.p);
+    if (next === k.p) continue;
+    wordsCache.delete(k.p);
+    k.p = next;
+    changedCount++;
+  }
+  if (!changedCount) { toast('Во всех выделенных фразах уже стоит ! перед словами', true); return; }
+  rebuildIndex();
+  changed(`! добавлен: ${phrasesWord(changedCount)}`);
+}
+
+// ---------- группировка слов в кластере ----------
+
+let gwItems = [];
+let gwStats = new Map();   // корень → число фраз
+let gwForms = new Map();   // корень → формы слова
+let gwLabels = new Map();  // корень → самая частая форма для показа
+let gwScores = new Map();
+let gwSelected = new Set();
+let gwFilter = '';
+
+const GW_ENDINGS = [
+  'остью', 'естью', 'остей', 'остям', 'ости', 'остью',
+  'иями', 'ями', 'ией', 'ья', 'ью', 'ьев', 'ия',
+  'ать', 'ять', 'еть', 'ить', 'оть', 'уть', 'ться',
+  'ами', 'ыми', 'ых', 'их', 'ым', 'им', 'ом', 'ем', 'ой', 'ей',
+  'ую', 'юю', 'ая', 'яя', 'ое', 'ее', 'ые', 'ие',
+  'ешь', 'ишь', 'ете', 'ите', 'ут', 'ют', 'ат', 'ят',
+  'ла', 'ло', 'ли', 'й', 'а', 'я', 'о', 'е', 'и', 'у', 'ы', 'ь',
+];
+
+function gwStem(w) {
+  w = String(w).toLowerCase().replace(/ё/g, 'е');
+  if (w.length <= 4) return w;
+  for (const end of GW_ENDINGS) {
+    if (w.endsWith(end) && w.length - end.length >= 4) return w.slice(0, -end.length);
+  }
+  return w;
+}
+
+function gwFormsOf(k) {
+  return [...new Set(norm(k.p).key.split(' ').filter(Boolean))];
+}
+
+function gwWords(k) {
+  return [...new Set(gwFormsOf(k).map(gwStem))];
+}
+
+function gwBuild() {
+  gwStats = new Map();
+  gwForms = new Map();
+  for (const k of gwItems) {
+    for (const stem of gwWords(k)) gwStats.set(stem, (gwStats.get(stem) || 0) + 1);
+    for (const form of gwFormsOf(k)) {
+      const stem = gwStem(form);
+      if (!gwForms.has(stem)) gwForms.set(stem, new Map());
+      const forms = gwForms.get(stem);
+      forms.set(form, (forms.get(form) || 0) + 1);
+    }
+  }
+  gwLabels = new Map([...gwForms].map(([stem, forms]) => [stem,
+    [...forms].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length || a[0].localeCompare(b[0], 'ru'))[0][0]]));
+  gwScores = new Map(gwItems.map((k) => [k, gwWords(k).reduce((s, w) => s + gwStats.get(w), 0)]));
+}
+
+function gwVisible() {
+  const q = $('gwSearch').value.toLowerCase().replace(/ё/g, 'е').trim();
+  return gwItems.filter((k) =>
+    (!gwFilter || gwWords(k).includes(gwFilter)) &&
+    (!q || k.p.toLowerCase().replace(/ё/g, 'е').includes(q)));
+}
+
+function updateGwCount() {
+  $('gwCount').textContent = `${gwStats.size} отдельных слов · ${gwItems.length} фраз · выбрано ${gwSelected.size}`;
+}
+
+function renderGwWords() {
+  const q = $('gwSearch').value.toLowerCase().replace(/ё/g, 'е').trim();
+  const list = [...gwStats.entries()]
+    .filter(([stem]) => !q || gwLabels.get(stem).includes(q) || stem.includes(q))
+    .sort((a, b) => b[1] - a[1] || gwLabels.get(a[0]).localeCompare(gwLabels.get(b[0]), 'ru'));
+  $('gwWords').innerHTML = `<div class="gw-word ${gwFilter ? '' : 'active'}" data-word="">Все слова <b>${gwItems.length}</b></div>` +
+    (list.length
+      ? list.map(([stem, n]) => {
+        const label = gwLabels.get(stem);
+        const forms = [...gwForms.get(stem).keys()].join(', ');
+        return `<div class="gw-word ${gwFilter === stem ? 'active' : ''}" data-word="${esc(stem)}" title="Фраз: ${n}. Формы: ${esc(forms)}">${esc(label)} <b>${n}</b></div>`;
+      }).join('')
+      : '<div class="gw-empty">Ничего не найдено</div>');
+}
+
+function renderGwPhrases() {
+  const list = gwVisible();
+  $('gwPhrases').innerHTML = list.length
+    ? list.map((k) => {
+      const detail = gwWords(k).map((stem) => `${gwLabels.get(stem)}: ${gwStats.get(stem)}`).join(', ');
+      return `<label class="gw-phrase"><input type="checkbox" data-i="${gwItems.indexOf(k)}" ${gwSelected.has(k) ? 'checked' : ''}>
+        <span class="txt" title="${esc(detail)}">${esc(k.p)}</span><span class="score" title="Сумма вхождений слов">${gwScores.get(k)}</span></label>`;
+    }).join('')
+    : '<div class="gw-empty">Нет фраз по этому фильтру</div>';
+  updateGwCount();
+}
+
+function renderGwAll() {
+  renderGwWords();
+  renderGwPhrases();
+}
+
+function fillGwTarget() {
+  const prev = $('gwTarget').value;
+  $('gwTarget').innerHTML = '<option value="">Куда переместить…</option><option value="-">— без кластера —</option>' +
+    db.clusters.filter((c) => c.id !== view.id).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  $('gwTarget').value = prev;
+}
+
+function openWordGroups() {
+  if (editLocked()) return;
+  if (view.type !== 'cluster') return;
+  const cluster = db.clusters.find((c) => c.id === view.id);
+  if (!cluster) return;
+  gwItems = db.keywords.filter((k) => k.c === cluster.id);
+  if (!gwItems.length) { toast('В кластере пока нет фраз', true); return; }
+  gwSelected.clear();
+  gwFilter = '';
+  $('gwSearch').value = '';
+  $('gwTitle').textContent = cluster.name;
+  fillGwTarget();
+  gwBuild();
+  renderGwAll();
+  $('dlgWordGroups').showModal();
+}
+
+function moveGwSelected() {
+  if (editLocked()) return;
+  const target = $('gwTarget').value;
+  if (!target) { toast('Выберите кластер назначения', true); return; }
+  const items = gwVisible().filter((k) => gwSelected.has(k));
+  if (!items.length) { toast('Отметьте фразы галочками', true); return; }
+  const name = target === '-' ? 'без кластера' : clusterName(target);
+  for (const k of items) target === '-' ? delete k.c : k.c = target;
+  const gone = new Set(items);
+  gwItems = gwItems.filter((k) => !gone.has(k));
+  gwSelected.clear();
+  gwBuild();
+  fillGwTarget();
+  renderGwAll();
+  changed(`Группировка «${$('gwTitle').textContent}»: ${phrasesWord(items.length)} → ${name}`);
+  toast(`${phrasesWord(items.length)} → ${name}`);
+}
+
 async function editGroup(type, item) {
   if (editLocked()) return null;
   const dlg = $('dlgGroup');
@@ -653,6 +816,7 @@ async function bulkAction(act) {
   if (act === 'copy') return copyPhrases(items);
   if (act === 'csv') return downloadCsv(items);
   if (act === 'ws') return openWs(items);
+  if (act === 'bang') return addBangSelected(items);
   if (editLocked()) return;
   if (act === 'loaded' || act === 'unloaded') {
     const s = act === 'loaded' ? 1 : 0;
@@ -979,7 +1143,8 @@ function bind() {
 
   $('viewActions').addEventListener('click', (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act === 'rename') {
+    if (act === 'group') openWordGroups();
+    else if (act === 'rename') {
       const item = view.type === 'cluster' ? db.clusters.find((c) => c.id === view.id) : currentList();
       editGroup(view.type, item);
     } else if (act === 'remove') removeCurrentGroup();
@@ -1041,6 +1206,27 @@ function bind() {
     if (act) bulkAction(act);
   });
   $('bulkMove').addEventListener('change', (e) => moveSelected(e.target.value));
+
+  $('gwWords').addEventListener('click', (e) => {
+    const word = e.target.closest('[data-word]')?.dataset.word;
+    gwFilter = word || '';
+    renderGwAll();
+  });
+  $('gwSearch').addEventListener('input', renderGwAll);
+  $('gwPhrases').addEventListener('change', (e) => {
+    const i = e.target.dataset.i;
+    if (i == null) return;
+    const k = gwItems[+i];
+    e.target.checked ? gwSelected.add(k) : gwSelected.delete(k);
+    updateGwCount();
+  });
+  $('gwSelectAll').addEventListener('click', () => {
+    const vis = gwVisible();
+    const all = vis.length > 0 && vis.every((k) => gwSelected.has(k));
+    vis.forEach((k) => all ? gwSelected.delete(k) : gwSelected.add(k));
+    renderGwPhrases();
+  });
+  $('gwMove').addEventListener('click', moveGwSelected);
 
   $('btnWs').addEventListener('click', () => openWs(selected.size ? selectedArray() : rows));
   $('jobBar').addEventListener('click', (e) => {
