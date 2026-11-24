@@ -737,9 +737,28 @@ function renderGwWordsToDelete() {
   updateGwCount();
 }
 
+function gwVisibleStems() {
+  return [...new Set(gwVisible().flatMap(gwWords))];
+}
+
+function gwAllSelected() {
+  const items = gwMode === 'words' ? gwVisibleStems() : gwVisible();
+  const picked = gwMode === 'words' ? gwWordSelected : gwSelected;
+  return items.length > 0 && items.every((x) => picked.has(x));
+}
+
+function gwToggleSelectAll() {
+  const items = gwMode === 'words' ? gwVisibleStems() : gwVisible();
+  const picked = gwMode === 'words' ? gwWordSelected : gwSelected;
+  const all = gwAllSelected();
+  items.forEach((x) => all ? picked.delete(x) : picked.add(x));
+  renderGwRight();
+}
+
 function renderGwRight() {
   if (gwMode === 'words') renderGwWordsToDelete();
   else renderGwPhrases();
+  $('gwSelAll').checked = gwAllSelected();
 }
 
 function setGwMode(mode) {
@@ -1363,19 +1382,8 @@ function bind() {
     }
     updateGwCount();
   });
-  $('gwSelectAll').addEventListener('click', () => {
-    if (gwMode === 'words') {
-      const stems = new Set(gwVisible().flatMap(gwWords));
-      const all = stems.size > 0 && [...stems].every((s) => gwWordSelected.has(s));
-      [...stems].forEach((s) => all ? gwWordSelected.delete(s) : gwWordSelected.add(s));
-      renderGwWordsToDelete();
-    } else {
-      const vis = gwVisible();
-      const all = vis.length > 0 && vis.every((k) => gwSelected.has(k));
-      vis.forEach((k) => all ? gwSelected.delete(k) : gwSelected.add(k));
-      renderGwPhrases();
-    }
-  });
+  $('gwSelectAll').addEventListener('click', gwToggleSelectAll);
+  $('gwSelAll').addEventListener('change', gwToggleSelectAll);
   $('gwMove').addEventListener('click', moveGwSelected);
   $('gwDelete').addEventListener('click', deleteGwPhrases);
   $('gwDeleteWords').addEventListener('click', deleteGwWords);

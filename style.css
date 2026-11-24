@@ -81,7 +81,8 @@ dialog#dlgConfirm.stacked::backdrop { background: rgba(20,30,45,.12); }
 .gw-tools input { flex: 2; min-width: 220px; }
 .gw-tools select { flex: 1; min-width: 190px; }
 .gw-cols { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 12px; }
-.gw-cols h3 { margin: 0 0 6px; font-size: 14px; }
+.gw-cols h3 { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 6px; font-size: 14px; }
+.dlg .gw-selall { display: flex; flex-direction: row; align-items: center; gap: 4px; font-size: 12px; font-weight: normal; color: #5b6b7d; cursor: pointer; }
 .gw-list { max-height: 430px; overflow: auto; padding: 7px; border: 1px solid #e2e7ee; border-radius: 8px; background: #f8fafc; }
 .gw-word { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .gw-word:hover { background: #eaf2ff; }
