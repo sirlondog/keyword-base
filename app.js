@@ -620,6 +620,8 @@ let gwForms = new Map();   // корень → формы слова
 let gwLabels = new Map();  // корень → самая частая форма для показа
 let gwScores = new Map();
 let gwSelected = new Set();
+let gwWordSelected = new Set();
+let gwMode = 'phrases';
 let gwFilter = '';
 
 const GW_ENDINGS = [
@@ -674,7 +676,8 @@ function gwVisible() {
 }
 
 function updateGwCount() {
-  $('gwCount').textContent = `${gwStats.size} отдельных слов · ${gwItems.length} фраз · выбрано ${gwSelected.size}`;
+  const picked = gwMode === 'words' ? gwWordSelected.size : gwSelected.size;
+  $('gwCount').textContent = `${gwStats.size} групп слов · ${gwItems.length} фраз · выбрано ${picked}`;
 }
 
 function renderGwWords() {
@@ -705,9 +708,91 @@ function renderGwPhrases() {
   updateGwCount();
 }
 
+function renderGwWordsToDelete() {
+  const counts = new Map();
+  for (const k of gwVisible()) {
+    for (const stem of gwWords(k)) counts.set(stem, (counts.get(stem) || 0) + 1);
+  }
+  const list = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || gwLabels.get(a[0]).localeCompare(gwLabels.get(b[0]), 'ru'));
+  $('gwPhrases').innerHTML = list.length
+    ? list.map(([stem, n]) => {
+      const forms = [...gwForms.get(stem).keys()].join(', ');
+      return `<label class="gw-phrase" title="Формы: ${esc(forms)}"><input type="checkbox" data-stem="${esc(stem)}" ${gwWordSelected.has(stem) ? 'checked' : ''}>
+        <span class="txt">${esc(gwLabels.get(stem))}</span><span class="score">${n}</span></label>`;
+    }).join('')
+    : '<div class="gw-empty">Нет слов по этому фильтру</div>';
+  updateGwCount();
+}
+
+function renderGwRight() {
+  if (gwMode === 'words') renderGwWordsToDelete();
+  else renderGwPhrases();
+}
+
+function setGwMode(mode) {
+  gwMode = mode;
+  document.querySelectorAll('[data-gwmode]').forEach((b) => b.classList.toggle('active', b.dataset.gwmode === mode));
+  $('gwRightTitle').textContent = mode === 'words' ? 'Слова для удаления' : 'Фразы кластера';
+  $('gwTarget').classList.toggle('hidden', mode !== 'phrases');
+  $('gwMove').classList.toggle('hidden', mode !== 'phrases');
+  $('gwDeleteWords').classList.toggle('hidden', mode !== 'words');
+  renderGwAll();
+}
+
+function deleteGwWords() {
+  if (editLocked()) return;
+  const stems = [...gwWordSelected];
+  if (!stems.length) { toast('Отметьте слова для удаления', true); return; }
+  const targets = gwVisible();
+  if (!targets.length) { toast('Нет фраз по текущему фильтру', true); return; }
+  const names = stems.map((s) => gwLabels.get(s)).join(', ');
+  if (!confirm(`Удалить слова «${names}» из ${phrasesWord(targets.length)} по текущему фильтру?`)) return;
+
+  const targetSet = new Set(targets);
+  const occupied = new Set();
+  for (const item of db.keywords.concat(db.lists.flatMap((l) => l.items))) {
+    if (!targetSet.has(item)) occupied.add(norm(item.p).key);
+  }
+  for (const k of targets) occupied.add(norm(k.p).key);
+
+  let skipped = 0;
+  const accepted = [];
+  for (const k of targets) {
+    const parts = String(k.p).split(/\s+/).filter(Boolean);
+    const kept = parts.filter((tok) => {
+      const key = norm(tok).key;
+      return !key || !stems.includes(gwStem(key));
+    });
+    if (kept.length === parts.length) continue;
+    if (!kept.length) { skipped++; continue; }
+    const next = kept.join(' ');
+    const oldKey = norm(k.p).key;
+    const newKey = norm(next).key;
+    if (newKey !== oldKey && occupied.has(newKey)) { skipped++; continue; }
+    occupied.delete(oldKey);
+    occupied.add(newKey);
+    accepted.push({ k, next, removed: parts.length - kept.length });
+  }
+  let words = 0;
+  for (const c of accepted) {
+    wordsCache.delete(c.k.p);
+    c.k.p = c.next;
+    words += c.removed;
+  }
+
+  gwWordSelected.clear();
+  gwBuild();
+  if (gwFilter && !gwStats.has(gwFilter)) gwFilter = '';
+  rebuildIndex();
+  renderGwAll();
+  if (accepted.length) changed(`Группировка: удалено ${words} слов из ${phrasesWord(accepted.length)}`);
+  toast(`Удалено ${words} слов из ${phrasesWord(accepted.length)}` + (skipped ? `, пропущено ${skipped}` : ''));
+}
+
 function renderGwAll() {
   renderGwWords();
-  renderGwPhrases();
+  renderGwRight();
 }
 
 function fillGwTarget() {
@@ -725,12 +810,13 @@ function openWordGroups() {
   gwItems = db.keywords.filter((k) => k.c === cluster.id);
   if (!gwItems.length) { toast('В кластере пока нет фраз', true); return; }
   gwSelected.clear();
+  gwWordSelected.clear();
   gwFilter = '';
   $('gwSearch').value = '';
   $('gwTitle').textContent = cluster.name;
   fillGwTarget();
   gwBuild();
-  renderGwAll();
+  setGwMode('phrases');
   $('dlgWordGroups').showModal();
 }
 
@@ -1208,26 +1294,45 @@ function bind() {
   });
   $('bulkMove').addEventListener('change', (e) => moveSelected(e.target.value));
 
+  document.querySelectorAll('[data-gwmode]').forEach((b) => b.addEventListener('click', () => setGwMode(b.dataset.gwmode)));
   $('gwWords').addEventListener('click', (e) => {
     const word = e.target.closest('[data-word]')?.dataset.word;
     gwFilter = word || '';
+    gwWordSelected.clear();
     renderGwAll();
   });
-  $('gwSearch').addEventListener('input', renderGwAll);
+  $('gwSearch').addEventListener('input', () => {
+    gwWordSelected.clear();
+    renderGwAll();
+  });
   $('gwPhrases').addEventListener('change', (e) => {
-    const i = e.target.dataset.i;
-    if (i == null) return;
-    const k = gwItems[+i];
-    e.target.checked ? gwSelected.add(k) : gwSelected.delete(k);
+    if (gwMode === 'words') {
+      const stem = e.target.dataset.stem;
+      if (stem == null) return;
+      e.target.checked ? gwWordSelected.add(stem) : gwWordSelected.delete(stem);
+    } else {
+      const i = e.target.dataset.i;
+      if (i == null) return;
+      const k = gwItems[+i];
+      e.target.checked ? gwSelected.add(k) : gwSelected.delete(k);
+    }
     updateGwCount();
   });
   $('gwSelectAll').addEventListener('click', () => {
-    const vis = gwVisible();
-    const all = vis.length > 0 && vis.every((k) => gwSelected.has(k));
-    vis.forEach((k) => all ? gwSelected.delete(k) : gwSelected.add(k));
-    renderGwPhrases();
+    if (gwMode === 'words') {
+      const stems = new Set(gwVisible().flatMap(gwWords));
+      const all = stems.size > 0 && [...stems].every((s) => gwWordSelected.has(s));
+      [...stems].forEach((s) => all ? gwWordSelected.delete(s) : gwWordSelected.add(s));
+      renderGwWordsToDelete();
+    } else {
+      const vis = gwVisible();
+      const all = vis.length > 0 && vis.every((k) => gwSelected.has(k));
+      vis.forEach((k) => all ? gwSelected.delete(k) : gwSelected.add(k));
+      renderGwPhrases();
+    }
   });
   $('gwMove').addEventListener('click', moveGwSelected);
+  $('gwDeleteWords').addEventListener('click', deleteGwWords);
 
   $('btnWs').addEventListener('click', () => openWs(selected.size ? selectedArray() : rows));
   $('jobBar').addEventListener('click', (e) => {

@@ -72,6 +72,8 @@ dialog::backdrop { background: rgba(20,30,45,.45); }
 .dlg { display: flex; flex-direction: column; gap: 12px; width: 640px; max-width: 92vw; padding: 20px 22px; }
 .dlg.small { width: 440px; }
 .dlg.wide { width: 940px; }
+.gw-modes { display: flex; gap: 6px; }
+.gw-modes button.active { background: #1d4fa8; color: #fff; border-color: #1d4fa8; }
 .gw-tools { align-items: flex-end; flex-wrap: wrap; }
 .gw-tools input { flex: 2; min-width: 220px; }
 .gw-tools select { flex: 1; min-width: 190px; }

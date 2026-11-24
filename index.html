@@ -100,10 +100,15 @@
   <div class="dlg wide">
     <h2>Группировка слов — <span id="gwTitle"></span></h2>
     <p class="hint">Отдельные слова считаются по числу фраз кластера, в которых они встречаются.
-      Цифра напротив фразы — сумма вхождений всех её слов (подробности в подсказке). Нажмите на слово, чтобы оставить только фразы с ним.</p>
+      Нажмите на слово слева, чтобы оставить только фразы с ним. Режим «Слова для удаления» убирает отмеченные слова из фраз по текущему фильтру.</p>
+    <div class="gw-modes">
+      <button type="button" data-gwmode="phrases" class="active">▤ Фразы</button>
+      <button type="button" data-gwmode="words">✖ Слова для удаления</button>
+    </div>
     <div class="row gw-tools">
       <input id="gwSearch" placeholder="Поиск по словам или фразам…">
       <select id="gwTarget"></select>
+      <button type="button" id="gwDeleteWords" class="danger hidden">Удалить слова</button>
       <button type="button" id="gwSelectAll">Выделить всё</button>
       <button type="button" id="gwMove" class="primary">Переместить</button>
       <button type="button" data-close>Закрыть</button>
@@ -115,7 +120,7 @@
         <div id="gwWords" class="gw-list"></div>
       </div>
       <div>
-        <h3>Фразы кластера</h3>
+        <h3 id="gwRightTitle">Фразы кластера</h3>
         <div id="gwPhrases" class="gw-list"></div>
       </div>
     </div>
