@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>База ключей — Яндекс Директ</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="logo">🔑 База ключей</div>
+  <div class="top-actions">
+    <span id="saveState" class="save-state"></span>
+    <button id="btnSync" title="Загрузить актуальную версию с GitHub">⟳ Обновить</button>
+    <button id="btnSettings">⚙ Настройки</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="side">
+    <div class="side-section">База</div>
+    <nav id="navBase"></nav>
+    <div class="side-section">Кластеры <button class="icon" id="btnAddCluster" title="Новый кластер">＋</button></div>
+    <nav id="navClusters"></nav>
+    <div class="side-section">Списки <button class="icon" id="btnAddList" title="Новый список">＋</button></div>
+    <nav id="navLists"></nav>
+  </aside>
+
+  <main class="main">
+    <div class="view-head">
+      <div>
+        <h1 id="viewTitle"></h1>
+        <div id="viewPurpose" class="purpose"></div>
+      </div>
+      <div class="view-actions" id="viewActions"></div>
+    </div>
+
+    <div id="stats" class="stats"></div>
+
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Поиск по фразе…">
+      <select id="statusFilter">
+        <option value="all">Все статусы</option>
+        <option value="0">Не загружено</option>
+        <option value="1">Загружено</option>
+      </select>
+      <button id="btnCopyAll" title="Скопировать все фразы, видимые с учётом фильтров">Копировать все</button>
+      <button id="btnCsvAll" title="Выгрузить в CSV все фразы, видимые с учётом фильтров">CSV</button>
+      <button class="primary" id="btnAdd">＋ Добавить ключи</button>
+    </div>
+
+    <div id="bulk" class="bulk hidden">
+      <span id="bulkCount"></span>
+      <button data-bulk="loaded" class="ok">✔ Загружено</button>
+      <button data-bulk="unloaded">✖ Не загружено</button>
+      <select id="bulkMove"></select>
+      <button data-bulk="copy">Копировать</button>
+      <button data-bulk="csv">CSV</button>
+      <button data-bulk="delete" class="danger">Удалить</button>
+      <button data-bulk="clear" class="link">снять выделение</button>
+    </div>
+
+    <div class="table-wrap">
+      <table class="grid">
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div id="empty" class="empty hidden"></div>
+    </div>
+    <div id="pager" class="pager"></div>
+  </main>
+</div>
+
+<!-- Добавление ключей -->
+<dialog id="dlgAdd">
+  <form method="dialog" class="dlg">
+    <h2>Добавить ключи</h2>
+    <label>Куда добавить
+      <select id="addTarget"></select>
+    </label>
+    <label>Фразы — по одной на строку (можно вставить колонки из Excel / Key Collector: фраза, частота)
+      <textarea id="addText" rows="14" placeholder="сборка пк спб&#10;собрать компьютер на заказ&#9;120"></textarea>
+    </label>
+    <label class="check"><input type="checkbox" id="addLoaded"> сразу отметить как «загружено»</label>
+    <div id="addReport" class="report"></div>
+    <div class="dlg-actions">
+      <button type="button" data-close>Закрыть</button>
+      <button id="btnAddDo" class="primary" type="button">Добавить</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Кластер / список -->
+<dialog id="dlgGroup">
+  <form method="dialog" class="dlg small">
+    <h2 id="groupTitle"></h2>
+    <label>Название <input id="groupName" required></label>
+    <label id="groupPurposeWrap">Для чего этот список <textarea id="groupPurpose" rows="3"></textarea></label>
+    <div class="dlg-actions">
+      <button type="button" data-close>Отмена</button>
+      <button class="primary" value="ok">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Настройки -->
+<dialog id="dlgSettings">
+  <form method="dialog" class="dlg">
+    <h2>Подключение к GitHub</h2>
+    <p class="hint">База хранится файлом JSON в вашем репозитории. Нужен токен:
+      <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">создать fine-grained токен</a>
+      → Repository access: <b>Only select repositories</b> → нужный репозиторий →
+      Permissions → <b>Contents: Read and write</b>. Токен хранится только в этом браузере.</p>
+    <label>Токен <input id="setToken" type="password" autocomplete="off" placeholder="github_pat_…"></label>
+    <div class="row">
+      <label>Владелец <input id="setOwner"></label>
+      <label>Репозиторий <input id="setRepo"></label>
+    </div>
+    <div class="row">
+      <label>Ветка <input id="setBranch"></label>
+      <label>Файл <input id="setPath"></label>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" data-close>Отмена</button>
+      <button class="primary" value="ok">Подключить</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
