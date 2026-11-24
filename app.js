@@ -152,18 +152,28 @@ function repoPath() {
   return `/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}`;
 }
 
+function filePath(path) {
+  return `${repoPath()}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
+}
+
 function contentsPath() {
-  return `${repoPath()}/contents/${cfg.path.split('/').map(encodeURIComponent).join('/')}`;
+  return filePath(cfg.path);
+}
+
+// Читает JSON-файл из репозитория: { data, sha }
+async function readJsonFile(path) {
+  const meta = await gh('GET', `${filePath(path)}?ref=${encodeURIComponent(cfg.branch)}`);
+  // Файлы больше 1 МБ API отдаёт без содержимого — тогда читаем blob
+  const b64 = meta.encoding === 'base64' && meta.content
+    ? meta.content
+    : (await gh('GET', `${repoPath()}/git/blobs/${meta.sha}`)).content;
+  return { data: JSON.parse(b64decode(b64)), sha: meta.sha };
 }
 
 async function fetchRemote() {
   try {
-    const meta = await gh('GET', `${contentsPath()}?ref=${encodeURIComponent(cfg.branch)}`);
-    // Файлы больше 1 МБ API отдаёт без содержимого — тогда читаем blob
-    const b64 = meta.encoding === 'base64' && meta.content
-      ? meta.content
-      : (await gh('GET', `${repoPath()}/git/blobs/${meta.sha}`)).content;
-    return { data: normalizeDb(JSON.parse(b64decode(b64))), sha: meta.sha };
+    const file = await readJsonFile(cfg.path);
+    return { data: normalizeDb(file.data), sha: file.sha };
   } catch (e) {
     if (e.status !== 404) throw e;
     // Без доступа к репозиторию GitHub тоже отвечает 404 — отличаем это от отсутствующего файла
@@ -376,6 +386,9 @@ function computeRows() {
     p: (k) => k.p.toLowerCase(),
     w: (k) => wordCount(k.p),
     f: (k) => k.f || 0,
+    wb: (k) => k.w?.b ?? -1,
+    wq: (k) => k.w?.q ?? -1,
+    we: (k) => k.w?.e ?? -1,
     c: (k) => clusterName(k.c).toLowerCase(),
     s: (k) => (k.s ? 1 : 0),
     d: (k) => k.d || '',
@@ -400,6 +413,7 @@ function render() {
   renderNav();
   renderView();
   renderSaveState();
+  renderJob();
 }
 
 function navItem(attrs, name, items, active) {
@@ -455,13 +469,20 @@ function renderView() {
     ${rows.length !== src.length ? `<span>По фильтру: <b>${rows.length}</b></span>` : ''}`;
 
   const showCluster = view.type === 'all';
-  const cols = [['p', 'Фраза'], ['w', 'Слов', 'num'], ['f', 'Частота', 'num']];
+  const cols = [
+    ['p', 'Фраза'],
+    ['w', 'Слов', 'num'],
+    ['wb', 'WS', 'ws', 'Wordstat: базовая частотность'],
+    ['wq', '"WS"', 'ws', 'Wordstat: фразовая частотность "в кавычках"'],
+    ['we', '"!WS"', 'ws', 'Wordstat: точная частотность "!слово"'],
+    ['f', 'Вхожд.', 'num', 'Вхождений в отчёте Директа (из первичного импорта)'],
+  ];
   if (showCluster) cols.push(['c', 'Кластер']);
   cols.push(['s', 'Статус'], ['d', 'Добавлено']);
 
   const allSel = rows.length > 0 && rows.every((k) => selected.has(k));
   $('thead').innerHTML = `<th class="cb nosort"><input type="checkbox" id="selAll" ${allSel ? 'checked' : ''} title="Выделить всё по фильтру"></th>` +
-    cols.map(([k, t, cls]) => `<th data-sort="${k}" class="${cls || ''}">${t}${sort.key === k ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('');
+    cols.map(([k, t, cls, title]) => `<th data-sort="${k}" class="${cls || ''}"${title ? ` title="${esc(title)}"` : ''}>${esc(t)}${sort.key === k ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('');
 
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   if (page >= pages) page = pages - 1;
@@ -470,10 +491,13 @@ function renderView() {
 
   $('tbody').innerHTML = slice.map((k, i) => {
     const sel = selected.has(k);
+    const wsTitle = k.w ? ` title="${esc(regionName(k.w.r))}, собрано ${esc(k.w.d || '')}"` : '';
+    const ws = (t) => `<td class="ws"${wsTitle}>${k.w?.[t] ?? ''}</td>`;
     return `<tr data-i="${start + i}"${sel ? ' class="sel"' : ''}>
       <td class="cb"><input type="checkbox" ${sel ? 'checked' : ''}></td>
       <td class="ph">${esc(k.p)}</td>
       <td class="num">${wordCount(k.p)}</td>
+      ${ws('b')}${ws('q')}${ws('e')}
       <td class="num">${k.f || ''}</td>
       ${showCluster ? `<td class="cl">${esc(clusterName(k.c)) || '—'}</td>` : ''}
       <td class="st"><span class="badge ${k.s ? 'on' : 'off'}" data-toggle title="Нажмите, чтобы переключить">${k.s ? '✔ загружено' : 'не загружено'}</span></td>
@@ -565,6 +589,7 @@ function reportHtml(rep, target) {
 }
 
 async function editGroup(type, item) {
+  if (editLocked()) return null;
   const dlg = $('dlgGroup');
   $('groupTitle').textContent = item
     ? (type === 'cluster' ? 'Переименовать кластер' : 'Изменить список')
@@ -608,9 +633,10 @@ function copyPhrases(items) {
 function downloadCsv(items) {
   if (!items.length) return;
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [['Фраза', 'Слов', 'Частота', 'Кластер', 'Статус', 'Добавлено'].join(';')];
+  const lines = [['Фраза', 'Слов', 'WS базовая', 'WS "фразовая"', 'WS "!точная"', 'Регион WS', 'Вхождений', 'Кластер', 'Статус', 'Добавлено'].join(';')];
   for (const k of items) {
-    lines.push([q(k.p), wordCount(k.p), k.f || '', q(view.type === 'list' ? '' : clusterName(k.c)), k.s ? 'загружено' : 'не загружено', k.d || ''].join(';'));
+    lines.push([q(k.p), wordCount(k.p), k.w?.b ?? '', k.w?.q ?? '', k.w?.e ?? '', q(k.w ? regionName(k.w.r) : ''), k.f || '',
+      q(view.type === 'list' ? '' : clusterName(k.c)), k.s ? 'загружено' : 'не загружено', k.d || ''].join(';'));
   }
   const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -626,6 +652,8 @@ async function bulkAction(act) {
   if (!items.length) return;
   if (act === 'copy') return copyPhrases(items);
   if (act === 'csv') return downloadCsv(items);
+  if (act === 'ws') return openWs(items);
+  if (editLocked()) return;
   if (act === 'loaded' || act === 'unloaded') {
     const s = act === 'loaded' ? 1 : 0;
     items.forEach((k) => { k.s = s; });
@@ -646,6 +674,7 @@ async function bulkAction(act) {
 async function moveSelected(value) {
   const items = selectedArray();
   if (!items.length || !value) return;
+  if (editLocked()) { renderBulk(); return; }
   let id = value;
   if (value === '+') {
     const c = await editGroup('cluster');
@@ -658,6 +687,7 @@ async function moveSelected(value) {
 }
 
 async function removeCurrentGroup() {
+  if (editLocked()) return;
   if (view.type === 'cluster') {
     const c = db.clusters.find((x) => x.id === view.id);
     const n = db.keywords.filter((k) => k.c === c.id).length;
@@ -692,6 +722,7 @@ function fillAddTargets(preferred) {
 }
 
 function openAdd() {
+  if (editLocked()) return;
   const pref = view.type === 'cluster' ? 'c:' + view.id : view.type === 'list' ? 'l:' + view.id : 'c:';
   fillAddTargets(pref);
   $('addReport').innerHTML = '';
@@ -702,6 +733,225 @@ function openAdd() {
 
 function targetFromValue(v) {
   return v.startsWith('l:') ? { type: 'list', id: v.slice(2) } : { type: 'cluster', id: v.slice(2) };
+}
+
+// ---------- частотность Wordstat (XMLRiver через GitHub Actions) ----------
+
+const LS_WS = 'kb.ws';
+const WS_PRICE = 0.025;          // ₽ за запрос по базовому тарифу XMLRiver (25 ₽ за 1000)
+const WS_SEC_PER_REQUEST = 0.4;  // ориентир для оценки времени при 5 потоках
+const JOB_STALE_MS = 30 * 60 * 1000;
+const WS_TYPES = { b: 'базовая', q: '"фразовая"', e: '"!точная"' };
+const REGIONS = [
+  ['', 'Все регионы'],
+  ['225', 'Россия'],
+  ['10174', 'Санкт-Петербург и Ленинградская область'],
+  ['2', 'Санкт-Петербург'],
+  ['1', 'Москва и Московская область'],
+  ['213', 'Москва'],
+];
+
+let job = null;
+let jobSha = null;
+let jobTimer = null;
+let wsItems = [];
+
+function regionName(r) {
+  const found = REGIONS.find(([id]) => id === String(r ?? ''));
+  return found ? found[1] : `регион ${r}`;
+}
+
+function jobPath() {
+  const i = cfg.path.lastIndexOf('/');
+  return (i >= 0 ? cfg.path.slice(0, i + 1) : '') + 'wordstat-job.json';
+}
+
+async function fetchJob() {
+  try {
+    const file = await readJsonFile(jobPath());
+    jobSha = file.sha;
+    return file.data;
+  } catch (e) {
+    if (e.status === 404) { jobSha = null; return null; }
+    throw e;
+  }
+}
+
+async function putJob(j, message) {
+  const res = await gh('PUT', filePath(jobPath()), {
+    message,
+    content: b64encode(JSON.stringify(j, null, 1) + '\n'),
+    branch: cfg.branch,
+    ...(jobSha ? { sha: jobSha } : {}),
+  });
+  jobSha = res.content.sha;
+}
+
+// Задание считается активным, пока GitHub Actions подаёт признаки жизни
+function jobActive(j) {
+  if (!j || !['queued', 'running', 'cancel'].includes(j.status)) return false;
+  return Date.now() - Date.parse(j.heartbeat || j.created) < JOB_STALE_MS;
+}
+
+function editLocked() {
+  if (!jobActive(job)) return false;
+  toast('Идёт сбор частотности — менять базу можно будет после его окончания', true);
+  return true;
+}
+
+function renderJob() {
+  const bar = $('jobBar');
+  if (!jobActive(job)) { bar.classList.add('hidden'); return; }
+  const pct = job.total ? Math.round(((job.done || 0) / job.total) * 100) : 0;
+  const state = job.status === 'queued' ? 'ожидает запуска GitHub Actions…'
+    : job.status === 'cancel' ? 'останавливается…'
+    : `${job.done || 0} из ${phrasesWord(job.total)}`;
+  const types = (job.types || []).map((t) => WS_TYPES[t]).join(', ');
+  bar.innerHTML = `<b>📊 Сбор частотности</b><span>${esc(state)}</span>
+    <div class="progress"><div style="width:${pct}%"></div></div>
+    <span class="hint">${esc(types)} · ${esc(regionName(job.region))}</span>
+    ${job.status !== 'cancel' ? '<button data-job="cancel">Остановить</button>' : ''}`;
+  bar.classList.remove('hidden');
+}
+
+async function pollJob() {
+  clearTimeout(jobTimer);
+  if (!cfg.token) return;
+  let cur;
+  try {
+    cur = await fetchJob();
+  } catch {
+    jobTimer = setTimeout(pollJob, 30000);
+    return;
+  }
+  const prev = job;
+  job = cur;
+  const sameJob = prev && cur && prev.id === cur.id;
+  if (jobActive(cur)) {
+    // Подтягиваем промежуточные результаты, когда GitHub Actions записал очередную пачку
+    if (sameJob && (cur.done || 0) > (prev.done || 0) && !dirty) await loadRemote();
+    jobTimer = setTimeout(pollJob, 10000);
+  } else if (sameJob && jobActive(prev)) {
+    if (!dirty) await loadRemote();
+    if (cur.status === 'done') {
+      toast(`Частотность собрана: ${phrasesWord(cur.total)}` + (cur.failed ? `, не удалось получить: ${cur.failed}` : ''));
+    } else if (cur.status === 'error') {
+      toast('Сбор частотности остановлен: ' + (cur.error || 'ошибка'), true);
+    } else if (cur.status === 'cancelled') {
+      toast('Сбор частотности остановлен');
+    } else {
+      toast('GitHub Actions перестал отвечать — сбор прерван. Уже собранные данные сохранены.', true);
+    }
+  }
+  renderJob();
+}
+
+function syncRegionSelect() {
+  const v = $('wsRegion').value.trim();
+  $('wsRegionSel').value = REGIONS.some(([id]) => id === v) ? v : 'custom';
+}
+
+function wsSettings() {
+  return {
+    types: ['b', 'q', 'e'].filter((t) => $('ws' + t.toUpperCase()).checked),
+    region: $('wsRegion').value.replace(/\s/g, ''),
+    skip: $('wsSkip').checked,
+  };
+}
+
+function wsPhrases({ types, region, skip }) {
+  const seen = new Set();
+  const out = [];
+  for (const k of wsItems) {
+    if (skip && k.w && String(k.w.r ?? '') === region && types.every((t) => k.w[t] != null)) continue;
+    const key = norm(k.p).key;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(k.p);
+  }
+  return out;
+}
+
+function updateWsEstimate() {
+  const s = wsSettings();
+  const el = $('wsEstimate');
+  if (!s.types.length) { el.innerHTML = '<span class="warn">Выберите хотя бы один вид частотности</span>'; return; }
+  if (s.region && !/^\d+(,\d+)*$/.test(s.region)) { el.innerHTML = '<span class="warn">ID региона — число (или несколько через запятую)</span>'; return; }
+  const n = wsPhrases(s).length;
+  const skipped = wsItems.length - n;
+  const req = n * s.types.length;
+  const mins = Math.max(1, Math.round((req * WS_SEC_PER_REQUEST) / 60));
+  el.innerHTML = n
+    ? `К сбору: <b>${phrasesWord(n)}</b>${skipped ? ` (пропущено ${skipped})` : ''} · запросов: <b>${req}</b>
+       · ≈ <b>${(req * WS_PRICE).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽</b> по тарифу 25 ₽ за 1000 · примерно ${mins} мин`
+    : '<span class="warn">У всех выбранных фраз частотность уже собрана</span>';
+}
+
+async function openWs(items) {
+  if (!cfg.token) return openSettings();
+  if (jobActive(job)) { toast('Сбор частотности уже идёт', true); return; }
+  if (!items.length) { toast('Нет фраз для сбора', true); return; }
+  wsItems = items;
+  const saved = readLS(LS_WS);
+  $('wsRegionSel').innerHTML = REGIONS.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('') +
+    '<option value="custom">Другой — укажите ID</option>';
+  $('wsB').checked = saved.types ? saved.types.includes('b') : true;
+  $('wsQ').checked = saved.types ? saved.types.includes('q') : true;
+  $('wsE').checked = saved.types ? saved.types.includes('e') : false;
+  $('wsRegion').value = saved.region ?? '10174';
+  $('wsSkip').checked = saved.skip ?? true;
+  syncRegionSelect();
+  $('wsScope').textContent = selected.size
+    ? `Выделенные фразы: ${phrasesWord(items.length)}.`
+    : `Все фразы раздела «${viewTitle()}» с учётом фильтров: ${phrasesWord(items.length)}. Чтобы собрать только часть — выделите фразы галочками.`;
+  updateWsEstimate();
+  if ((await openDialog($('dlgWs'))) !== 'ok') return;
+  const s = wsSettings();
+  localStorage.setItem(LS_WS, JSON.stringify(s));
+  if (!s.types.length || (s.region && !/^\d+(,\d+)*$/.test(s.region))) { toast('Проверьте настройки сбора', true); return; }
+  await startWs(wsPhrases(s), s);
+}
+
+async function startWs(phrases, { types, region }) {
+  if (!phrases.length) { toast('Нет фраз для сбора', true); return; }
+  if (dirty) {
+    clearTimeout(saveTimer);
+    await save();
+    if (dirty) { toast('Сначала должны сохраниться изменения в базе — попробуйте ещё раз', true); return; }
+  }
+  try {
+    const cur = await fetchJob();
+    if (jobActive(cur)) { job = cur; renderJob(); toast('Сбор частотности уже идёт', true); return; }
+    const now = new Date().toISOString();
+    const next = { id: uid('ws_'), status: 'queued', created: now, heartbeat: now, types, region, total: phrases.length, done: 0, phrases };
+    await putJob(next, `Wordstat: задание на ${phrasesWord(phrases.length)}`);
+    job = next;
+    renderJob();
+    toast('Сбор запущен — частотность будет появляться в таблице по мере сбора');
+    clearTimeout(jobTimer);
+    jobTimer = setTimeout(pollJob, 15000);
+  } catch (e) {
+    toast('Не удалось запустить сбор: ' + e.message, true);
+  }
+}
+
+async function cancelJob() {
+  if (!confirm('Остановить сбор частотности? Уже собранные данные сохранятся.')) return;
+  try {
+    const cur = await fetchJob();
+    if (!jobActive(cur)) { job = cur; renderJob(); return; }
+    // Задание, которое GitHub Actions ещё не взял, отменяем сразу
+    const stopped = cur.status === 'queued'
+      ? { ...cur, status: 'cancelled', finished: new Date().toISOString() }
+      : { ...cur, status: 'cancel' };
+    await putJob(stopped, 'Wordstat: отмена сбора');
+    job = stopped;
+    renderJob();
+    clearTimeout(jobTimer);
+    jobTimer = setTimeout(pollJob, 5000);
+  } catch (e) {
+    toast('Не удалось остановить: ' + e.message, true);
+  }
 }
 
 // ---------- обработчики ----------
@@ -762,6 +1012,7 @@ function bind() {
     const i = +tr.dataset.i;
     const k = rows[i];
     if (e.target.matches('[data-toggle]')) {
+      if (editLocked()) return;
       k.s = k.s ? 0 : 1;
       changed(`«${k.p}» → ${k.s ? 'загружено' : 'не загружено'}`);
       return;
@@ -791,6 +1042,17 @@ function bind() {
   });
   $('bulkMove').addEventListener('change', (e) => moveSelected(e.target.value));
 
+  $('btnWs').addEventListener('click', () => openWs(selected.size ? selectedArray() : rows));
+  $('jobBar').addEventListener('click', (e) => {
+    if (e.target.closest('[data-job=cancel]')) cancelJob();
+  });
+  ['wsB', 'wsQ', 'wsE', 'wsSkip'].forEach((id) => $(id).addEventListener('change', updateWsEstimate));
+  $('wsRegionSel').addEventListener('change', (e) => {
+    if (e.target.value !== 'custom') $('wsRegion').value = e.target.value;
+    updateWsEstimate();
+  });
+  $('wsRegion').addEventListener('input', () => { syncRegionSelect(); updateWsEstimate(); });
+
   $('btnCopyAll').addEventListener('click', () => copyPhrases(rows));
   $('btnCsvAll').addEventListener('click', () => downloadCsv(rows));
 
@@ -804,6 +1066,7 @@ function bind() {
     } else sel.dataset.prev = sel.value;
   });
   $('btnAddDo').addEventListener('click', () => {
+    if (editLocked()) return;
     const items = parseLines($('addText').value);
     if (!items.length) { toast('Вставьте фразы — по одной на строку', true); return; }
     const target = targetFromValue($('addTarget').value);
@@ -815,7 +1078,7 @@ function bind() {
   $('btnSettings').addEventListener('click', openSettings);
   $('btnSync').addEventListener('click', () => {
     if (!cfg.token) return openSettings();
-    loadRemote();
+    loadRemote().then(pollJob);
   });
   $('saveState').addEventListener('click', () => {
     if (!cfg.token) return openSettings();
@@ -854,7 +1117,9 @@ async function openSettings() {
   if (!sameFile) { sha = null; dirty = false; pendingMsgs = []; }
   saveError = '';
   lastSavedAt = null;
+  job = null;
   await loadRemote();
+  pollJob();
 }
 
 // ---------- старт ----------
@@ -863,5 +1128,5 @@ loadLocal();
 rebuildIndex();
 bind();
 render();
-if (cfg.token) loadRemote();
+if (cfg.token) loadRemote().then(pollJob);
 else openSettings();

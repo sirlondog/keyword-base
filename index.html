@@ -37,6 +37,8 @@
 
     <div id="stats" class="stats"></div>
 
+    <div id="jobBar" class="job-bar hidden"></div>
+
     <div class="toolbar">
       <input id="search" type="search" placeholder="Поиск по фразе…">
       <select id="statusFilter">
@@ -44,6 +46,7 @@
         <option value="0">Не загружено</option>
         <option value="1">Загружено</option>
       </select>
+      <button id="btnWs" title="Собрать частотность Яндекс Wordstat через XMLRiver">📊 Частотность</button>
       <button id="btnCopyAll" title="Скопировать все фразы, видимые с учётом фильтров">Копировать все</button>
       <button id="btnCsvAll" title="Выгрузить в CSV все фразы, видимые с учётом фильтров">CSV</button>
       <button class="primary" id="btnAdd">＋ Добавить ключи</button>
@@ -54,6 +57,7 @@
       <button data-bulk="loaded" class="ok">✔ Загружено</button>
       <button data-bulk="unloaded">✖ Не загружено</button>
       <select id="bulkMove"></select>
+      <button data-bulk="ws">📊 Частотность</button>
       <button data-bulk="copy">Копировать</button>
       <button data-bulk="csv">CSV</button>
       <button data-bulk="delete" class="danger">Удалить</button>
@@ -86,6 +90,35 @@
     <div class="dlg-actions">
       <button type="button" data-close>Закрыть</button>
       <button id="btnAddDo" class="primary" type="button">Добавить</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Сбор частотности -->
+<dialog id="dlgWs">
+  <form method="dialog" class="dlg">
+    <h2>Собрать частотность Wordstat</h2>
+    <p class="hint" id="wsScope"></p>
+    <div class="ws-types">
+      <label class="check"><input type="checkbox" id="wsB" checked> Базовая <code>сборка пк</code></label>
+      <label class="check"><input type="checkbox" id="wsQ" checked> Фразовая <code>"сборка пк"</code></label>
+      <label class="check"><input type="checkbox" id="wsE"> Точная <code>"!сборка !пк"</code></label>
+    </div>
+    <div class="row">
+      <label>Регион
+        <select id="wsRegionSel"></select>
+      </label>
+      <label>ID региона Яндекса
+        <input id="wsRegion" placeholder="пусто — все регионы">
+      </label>
+    </div>
+    <label class="check"><input type="checkbox" id="wsSkip" checked> пропускать фразы, у которых частотность по этому региону уже собрана</label>
+    <div id="wsEstimate" class="report"></div>
+    <p class="hint">Сбор идёт на стороне GitHub Actions через XMLRiver: ключ API хранится в секретах приватного репозитория и в браузер не попадает.
+      Можно закрыть страницу — сбор продолжится. Пока идёт сбор, база доступна только для просмотра.</p>
+    <div class="dlg-actions">
+      <button type="button" data-close>Отмена</button>
+      <button class="primary" value="ok">Запустить сбор</button>
     </div>
   </form>
 </dialog>
