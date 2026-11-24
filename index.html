@@ -144,6 +144,9 @@
       <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">создать fine-grained токен</a>
       → Repository access: <b>Only select repositories</b> → нужный репозиторий →
       Permissions → <b>Contents: Read and write</b>. Токен хранится только в этом браузере.</p>
+    <p class="hint warn">Если сохранение падает с «Not Found» — значит, токен не видит репозиторий
+      <b>keyword-clusters</b>: откройте созданный токен на GitHub и добавьте этот репозиторий в Repository access.
+      Можно редактировать существующий токен, создавать новый не обязательно.</p>
     <label>Токен <input id="setToken" type="password" autocomplete="off" placeholder="github_pat_…"></label>
     <div class="row">
       <label>Владелец <input id="setOwner"></label>

@@ -139,7 +139,7 @@ async function gh(method, path, body) {
       403: 'у токена нет права Contents: Read and write',
       404: method === 'GET' && path.includes('/contents/')
         ? ''
-        : 'нет доступа к репозиторию — проверьте, что в токене выбран нужный репозиторий',
+        : 'токен не видит репозиторий (GitHub отвечает Not Found) — добавьте его в Repository access токена и дайте Contents: Read and write',
     }[res.status];
     const err = new Error(hint ? `${hint} (${msg})` : msg);
     err.status = res.status;
@@ -181,7 +181,7 @@ async function fetchRemote() {
       await gh('GET', repoPath());
     } catch (e2) {
       if (e2.status === 404) {
-        const err = new Error(`нет доступа к репозиторию ${cfg.owner}/${cfg.repo} — в настройках токена выберите его в Repository access и дайте право Contents: Read and write`);
+        const err = new Error(`токен не видит репозиторий ${cfg.owner}/${cfg.repo} (GitHub отвечает Not Found) — откройте токен на GitHub → Repository access → добавьте ${cfg.owner}/${cfg.repo}; право Contents: Read and write`);
         err.status = 404;
         throw err;
       }
