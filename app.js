@@ -134,7 +134,14 @@ async function gh(method, path, body) {
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = (await res.json()).message || msg; } catch { /* пустой ответ */ }
-    const err = new Error(msg);
+    const hint = {
+      401: 'токен не подходит — вставьте сам токен (начинается с github_pat_), он показывается один раз сразу после создания; токен также мог истечь',
+      403: 'у токена нет права Contents: Read and write',
+      404: method === 'GET' && path.includes('/contents/')
+        ? ''
+        : 'нет доступа к репозиторию — проверьте, что в токене выбран нужный репозиторий',
+    }[res.status];
+    const err = new Error(hint ? `${hint} (${msg})` : msg);
     err.status = res.status;
     throw err;
   }
@@ -158,8 +165,19 @@ async function fetchRemote() {
       : (await gh('GET', `${repoPath()}/git/blobs/${meta.sha}`)).content;
     return { data: normalizeDb(JSON.parse(b64decode(b64))), sha: meta.sha };
   } catch (e) {
-    if (e.status === 404) return { data: emptyDb(), sha: null, missing: true };
-    throw e;
+    if (e.status !== 404) throw e;
+    // Без доступа к репозиторию GitHub тоже отвечает 404 — отличаем это от отсутствующего файла
+    try {
+      await gh('GET', repoPath());
+    } catch (e2) {
+      if (e2.status === 404) {
+        const err = new Error(`нет доступа к репозиторию ${cfg.owner}/${cfg.repo} — в настройках токена выберите его в Repository access и дайте право Contents: Read and write`);
+        err.status = 404;
+        throw err;
+      }
+      throw e2;
+    }
+    return { data: emptyDb(), sha: null, missing: true };
   }
 }
 
@@ -825,6 +843,11 @@ async function openSettings() {
     branch: $('setBranch').value.trim() || DEFAULT_CFG.branch,
     path: $('setPath').value.trim().replace(/^\/+/, '') || DEFAULT_CFG.path,
   };
+  if (next.token && !/^(github_pat_|ghp_|gho_)[A-Za-z0-9_]{20,}$/.test(next.token)) {
+    alert('Это не похоже на токен GitHub.\n\nТокен начинается с «github_pat_» и состоит примерно из 90 символов. ' +
+      'Он показывается один раз — сразу после нажатия «Generate token». Если вы его не сохранили, создайте токен заново.');
+    return openSettings();
+  }
   const sameFile = ['owner', 'repo', 'branch', 'path'].every((k) => next[k] === cfg[k]);
   cfg = next;
   localStorage.setItem(LS_CFG, JSON.stringify(cfg));
