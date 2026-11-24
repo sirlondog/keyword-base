@@ -196,6 +196,18 @@
   </form>
 </dialog>
 
+<!-- Подтверждение действий -->
+<dialog id="dlgConfirm">
+  <form method="dialog" class="dlg small">
+    <h2 id="cfTitle">Подтверждение</h2>
+    <p id="cfText" class="hint"></p>
+    <div class="dlg-actions">
+      <button id="cfCancel" value="">Отмена</button>
+      <button id="cfOk" value="ok" class="danger">Удалить</button>
+    </div>
+  </form>
+</dialog>
+
 <div id="toast" class="toast hidden"></div>
 
 <script src="app.js"></script>

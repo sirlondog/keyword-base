@@ -104,6 +104,16 @@ function openDialog(dlg) {
   });
 }
 
+async function askConfirm(text, title = 'Подтверждение', okLabel = 'Удалить', cancelLabel = 'Отмена') {
+  const dlg = $('dlgConfirm');
+  $('cfTitle').textContent = title;
+  $('cfText').textContent = text;
+  $('cfOk').textContent = okLabel;
+  $('cfCancel').textContent = cancelLabel;
+  dlg.classList.toggle('stacked', !!document.querySelector('dialog[open]:not(#dlgConfirm)'));
+  return (await openDialog(dlg)) === 'ok';
+}
+
 // ---------- GitHub ----------
 
 function b64encode(str) {
@@ -227,10 +237,11 @@ async function loadRemote() {
     return;
   }
   if (dirty && sha !== remote.sha && !remote.missing) {
-    const keepLocal = confirm(
+    const keepLocal = await askConfirm(
       'В этом браузере есть несохранённые изменения, а файл на GitHub уже изменился с другого устройства.\n\n' +
-      'OK — оставить версию из этого браузера и записать её на GitHub.\n' +
-      'Отмена — взять версию с GitHub (локальные изменения пропадут).');
+      '«Оставить здесь» — записать локальную версию на GitHub.\n' +
+      '«Взять с GitHub» — локальные изменения пропадут.',
+      'Конфликт версий', 'Оставить здесь', 'Взять с GitHub');
     if (keepLocal) {
       sha = remote.sha;
       saveError = '';
@@ -740,14 +751,15 @@ function setGwMode(mode) {
   renderGwAll();
 }
 
-function deleteGwWords() {
+async function deleteGwWords() {
   if (editLocked()) return;
   const stems = [...gwWordSelected];
   if (!stems.length) { toast('Отметьте слова для удаления', true); return; }
   const targets = gwVisible();
   if (!targets.length) { toast('Нет фраз по текущему фильтру', true); return; }
   const names = stems.map((s) => gwLabels.get(s)).join(', ');
-  if (!confirm(`Удалить слова «${names}» из ${phrasesWord(targets.length)} по текущему фильтру?`)) return;
+  if (!await askConfirm(`Удалить слова «${names}» из ${phrasesWord(targets.length)} по текущему фильтру?`,
+    'Удаление слов', 'Удалить слова')) return;
 
   const targetSet = new Set(targets);
   const occupied = new Set();
@@ -912,7 +924,7 @@ async function bulkAction(act) {
     return;
   }
   if (act === 'delete') {
-    if (!confirm(`Удалить ${phrasesWord(items.length)}?`)) return;
+    if (!await askConfirm(`Удалить ${phrasesWord(items.length)}?`, 'Удаление фраз')) return;
     const del = new Set(items);
     const list = currentList();
     if (list) list.items = list.items.filter((k) => !del.has(k));
@@ -942,7 +954,8 @@ async function removeCurrentGroup() {
   if (view.type === 'cluster') {
     const c = db.clusters.find((x) => x.id === view.id);
     const n = db.keywords.filter((k) => k.c === c.id).length;
-    if (!confirm(`Удалить кластер «${c.name}»?\n${phrasesWord(n)} останутся в базе без кластера.`)) return;
+    if (!await askConfirm(`Удалить кластер «${c.name}»?\n${phrasesWord(n)} останутся в базе без кластера.`,
+      'Удаление кластера')) return;
     db.keywords.forEach((k) => { if (k.c === c.id) delete k.c; });
     db.clusters = db.clusters.filter((x) => x !== c);
     view = { type: 'nocluster' };
@@ -950,7 +963,8 @@ async function removeCurrentGroup() {
     changed(`Удалён кластер «${c.name}»`);
   } else if (view.type === 'list') {
     const l = currentList();
-    if (!confirm(`Удалить список «${l.name}» вместе с ${phrasesWord(l.items.length)} в нём?`)) return;
+    if (!await askConfirm(`Удалить список «${l.name}» вместе с ${phrasesWord(l.items.length)} в нём?`,
+      'Удаление списка')) return;
     db.lists = db.lists.filter((x) => x !== l);
     view = { type: 'all' };
     selected.clear();
@@ -1187,7 +1201,8 @@ async function startWs(phrases, { types, region }) {
 }
 
 async function cancelJob() {
-  if (!confirm('Остановить сбор частотности? Уже собранные данные сохранятся.')) return;
+  if (!await askConfirm('Остановить сбор частотности? Уже собранные данные сохранятся.',
+    'Остановка сбора', 'Остановить')) return;
   try {
     const cur = await fetchJob();
     if (!jobActive(cur)) { job = cur; renderJob(); return; }
